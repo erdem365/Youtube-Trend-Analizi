@@ -1,0 +1,65 @@
+# cleaner.py
+import pandas as pd
+import yaml
+import logging
+from data_loader import DataLoader
+
+with open("config.yaml", "r") as f:
+    config = yaml.safe_load(f)
+
+logging.basicConfig(
+    filename=config["logging"]["file"],
+    level=config["logging"]["level"],
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
+
+class DataCleaner:
+    def __init__(self, df):
+        self.df = df.copy()
+        self.category_mapping = config["categories"]
+
+    def clean_dates(self, date_col="trending_date"):
+        """Tarih sütununu datetime'a çevirir. YouTube formatı: YY.DD.MM"""
+        if date_col in self.df.columns:
+            # Örnek: '20.12.31' -> 2020-12-31
+            self.df[date_col] = pd.to_datetime(self.df[date_col], format="%y.%d.%m", errors="coerce")
+            logging.info(f"{date_col} sütunu datetime'a dönüştürüldü.")
+        return self
+
+    def handle_missing(self, numeric_fill=0, text_fill="Unknown"):
+        """Eksik değerleri doldurur."""
+        for col in self.df.columns:
+            if self.df[col].dtype in ["int64", "float64"]:
+                self.df[col] = self.df[col].fillna(numeric_fill)
+            else:
+                self.df[col] = self.df[col].fillna(text_fill)
+        logging.info("Eksik değerler dolduruldu.")
+        return self
+
+    def convert_numeric_columns(self, numeric_cols=["views", "likes", "dislikes", "comment_count"]):
+        """Belirtilen sütunları sayısal tipe çevirir (hatalı değerleri 0 yapar)."""
+        for col in numeric_cols:
+            if col in self.df.columns:
+                self.df[col] = pd.to_numeric(self.df[col], errors="coerce").fillna(0).astype("int64")
+        logging.info("Sayısal sütunlar dönüştürüldü.")
+        return self
+
+    def add_category_name(self, category_id_col="category_id"):
+        """Kategori ID'sine göre kategori adı ekler."""
+        if category_id_col in self.df.columns:
+            self.df["category_name"] = self.df[category_id_col].map(self.category_mapping).fillna("Other")
+            logging.info("Kategori adları eklendi.")
+        return self
+
+    def get_clean_data(self):
+        """Temizlenmiş DataFrame'i döndürür."""
+        return self.df
+
+if __name__ == "__main__":
+    # Test: veritabanından veri al, temizle
+    loader = DataLoader()
+    df_raw = loader.get_dataframe_from_db("SELECT * FROM trending LIMIT 1000")
+    cleaner = DataCleaner(df_raw)
+    cleaner.clean_dates().handle_missing().convert_numeric_columns().add_category_name()
+    clean_df = cleaner.get_clean_data()
+    print(clean_df.head())
