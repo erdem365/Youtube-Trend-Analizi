@@ -1,0 +1,65 @@
+# data_loader.py
+import pandas as pd
+import sqlite3
+import yaml
+import logging
+
+with open("config.yaml", "r") as f:
+    config = yaml.safe_load(f)
+
+logging.basicConfig(
+    filename=config["logging"]["file"],
+    level=config["logging"]["level"],
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
+
+class DataLoader:
+    def __init__(self, csv_path=None, db_path=None):
+        self.csv_path = csv_path or config["data"]["csv_file"]
+        self.db_path = db_path or config["database"]["sqlite_path"]
+        self.chunk_size = config["data"]["chunk_size"]
+        self.conn = None
+
+    def connect_db(self):
+        self.conn = sqlite3.connect(self.db_path)
+        logging.info(f"Veritabanı bağlantısı açıldı: {self.db_path}")
+
+    def close_db(self):
+        if self.conn:
+            self.conn.close()
+            logging.info("Veritabanı bağlantısı kapatıldı.")
+
+    def load_csv_to_sqlite(self, table_name="trending"):
+        """CSV'yi chunk chunk okuyup SQLite tablosuna yazar."""
+        self.connect_db()
+        first_chunk = True
+        total_rows = 0
+
+        try:
+            for chunk in pd.read_csv(self.csv_path, chunksize=self.chunk_size, low_memory=False):
+                # chunk içindeki sütun isimlerini düzenle (boşlukları temizle)
+                chunk.columns = chunk.columns.str.strip()
+                chunk.to_sql(table_name, self.conn, if_exists="append" if not first_chunk else "replace",
+                             index=False)
+                total_rows += len(chunk)
+                logging.info(f"{len(chunk)} satır eklendi. Toplam: {total_rows}")
+                first_chunk = False
+            logging.info(f"Toplam {total_rows} satır {table_name} tablosuna yüklendi.")
+        except Exception as e:
+            logging.error(f"Yükleme hatası: {e}")
+            raise
+        finally:
+            self.close_db()
+
+    def get_dataframe_from_db(self, query=None):
+        """SQLite’tan pandas DataFrame olarak veri çeker."""
+        self.connect_db()
+        if query is None:
+            query = "SELECT * FROM trending"
+        df = pd.read_sql_query(query, self.conn)
+        self.close_db()
+        return df
+
+if __name__ == "__main__":
+    loader = DataLoader()
+    loader.load_csv_to_sqlite()
