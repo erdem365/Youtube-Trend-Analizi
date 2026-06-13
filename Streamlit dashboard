@@ -1,0 +1,63 @@
+# dashboard.py
+import streamlit as st
+import plotly.express as px
+from analyzer import Analyzer
+from visualizer import Visualizer
+import pandas as pd
+
+st.set_page_config(page_title="YouTube Trend Analizi", layout="wide")
+st.title(" YouTube Trend Analiz Platformu")
+st.markdown("100k+ satır veri üzerinde trend videoları, kategori istatistikleri ve hızlı büyüyen kanallar.")
+
+@st.cache_resource
+def load_analyzer():
+    return Analyzer()
+
+analyzer = load_analyzer()
+visualizer = Visualizer(analyzer)
+
+# Sidebar filtreleri
+st.sidebar.header("Filtreler")
+categories = analyzer.df["category_name"].unique()
+selected_cats = st.sidebar.multiselect("Kategori Seç", options=categories, default=list(categories)[:5])
+
+date_min = analyzer.df["trending_date"].min()
+date_max = analyzer.df["trending_date"].max()
+date_range = st.sidebar.date_input("Tarih Aralığı", [date_min, date_max])
+
+# Veriyi filtrele
+filtered_df = analyzer.df[
+    (analyzer.df["category_name"].isin(selected_cats)) &
+    (analyzer.df["trending_date"].between(pd.to_datetime(date_range[0]), pd.to_datetime(date_range[1])))
+]
+analyzer.df = filtered_df  # geçici olarak filtreli veriyle çalış
+
+# 1. Kategori istatistikleri
+st.subheader(" Kategori Bazlı Ortalama İzlenme")
+fig_cat = visualizer.category_bar_chart()
+st.plotly_chart(fig_cat, use_container_width=True)
+
+col1, col2 = st.columns(2)
+with col1:
+    st.subheader(" En Çok İzlenen Kanallar")
+    fig_top = visualizer.top_channels_chart()
+    st.plotly_chart(fig_top, use_container_width=True)
+
+with col2:
+    st.subheader(" En Hızlı Büyüyen Kanallar")
+    fig_growth = visualizer.fastest_growing_chart()
+    st.plotly_chart(fig_growth, use_container_width=True)
+
+st.subheader(" Zaman İçinde Kategori Isı Haritası")
+fig_heat = visualizer.time_series_heatmap()
+st.plotly_chart(fig_heat, use_container_width=True)
+
+# Ham veri gösterimi
+st.subheader(" Temizlenmiş Veri Önizleme")
+st.dataframe(analyzer.df.head(100))
+
+st.sidebar.markdown("---")
+st.sidebar.info("Dashboard, YouTube trending verilerini analiz eder. Veri seti SQLite'da saklanır.")
+
+if __name__ == "__main__":
+    st.write("Dashboard hazır.")
