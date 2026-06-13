@@ -1,0 +1,46 @@
+# visualizer.py
+import plotly.express as px
+import plotly.graph_objects as go
+from analyzer import Analyzer
+
+class Visualizer:
+    def __init__(self, analyzer):
+        self.analyzer = analyzer
+
+    def category_bar_chart(self):
+        stats = self.analyzer.category_stats().reset_index()
+        fig = px.bar(stats, x="category_name", y="avg_views",
+                     title="Kategorilere Göre Ortalama İzlenme",
+                     labels={"avg_views": "Ortalama İzlenme", "category_name": "Kategori"},
+                     color="avg_views", color_continuous_scale="Viridis")
+        fig.update_layout(xaxis_tickangle=-45)
+        return fig
+
+    def top_channels_chart(self):
+        top = self.analyzer.top_channels_by_total_views().reset_index()
+        top.columns = ["channel", "total_views"]
+        fig = px.bar(top, x="channel", y="total_views",
+                     title="En Çok Toplam İzlenme Alan Kanallar",
+                     labels={"total_views": "Toplam İzlenme", "channel": "Kanal"})
+        fig.update_layout(xaxis_tickangle=-45)
+        return fig
+
+    def fastest_growing_chart(self):
+        growth = self.analyzer.fastest_growing_channels()
+        fig = px.bar(growth, x="channel", y="growth_slope",
+                     title="En Hızlı Büyüyen Kanallar (Büyüme Eğimi)",
+                     labels={"growth_slope": "Büyüme Eğimi (log)", "channel": "Kanal"},
+                     color="growth_slope", color_continuous_scale="Redor")
+        return fig
+
+    def time_series_heatmap(self):
+        trend = self.analyzer.category_time_trend()
+        # pivot tablo: satırlar tarih, sütunlar kategori, değerler izlenme
+        pivot = trend.pivot(index="trending_date", columns="category_name", values="views")
+        fig = px.imshow(pivot, aspect="auto", title="Zaman İçinde Kategori Bazlı İzlenme Isı Haritası",
+                        labels={"x": "Kategori", "y": "Tarih", "color": "Ort. İzlenme"})
+        return fig
+
+if __name__ == "__main__":
+    vis = Visualizer(Analyzer())
+    vis.category_bar_chart().show()
