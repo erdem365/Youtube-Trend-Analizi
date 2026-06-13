@@ -1,0 +1,74 @@
+# analyzer.py
+import pandas as pd
+import numpy as np
+import logging
+from data_loader import DataLoader
+from cleaner import DataCleaner
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
+class Analyzer:
+    def __init__(self, clean_df=None):
+        if clean_df is None:
+            loader = DataLoader()
+            df = loader.get_dataframe_from_db("SELECT * FROM trending")
+            cleaner = DataCleaner(df)
+            clean_df = cleaner.clean_dates().handle_missing().convert_numeric_columns().add_category_name().get_clean_data()
+        self.df = clean_df
+
+    def category_stats(self):
+        """Kategori bazlı ortalama izlenme, beğeni, yorum sayısı."""
+        stats = self.df.groupby("category_name").agg(
+            avg_views=("views", "mean"),
+            avg_likes=("likes", "mean"),
+            avg_comments=("comment_count", "mean"),
+            video_count=("video_id", "count")
+        ).round(2).sort_values("avg_views", ascending=False)
+        return stats
+
+    def top_channels_by_total_views(self, n=10):
+        """En çok toplam izlenme alan kanallar."""
+        top = self.df.groupby("channel_title")["views"].sum().sort_values(ascending=False).head(n)
+        return top
+
+    def fastest_growing_channels(self, min_appearances=3, top_n=10):
+        """
+        En hızlı büyüyen kanalları bulur.
+        Mantık: Her kanalın günlük izlenme sayılarını zaman sırasına koyar,
+        lineer regresyon eğimini (slope) hesaplar. En yüksek eğime sahip kanallar.
+        """
+        # Gerekli sütunların varlığını kontrol et
+        if "trending_date" not in self.df.columns or "views" not in self.df.columns:
+            raise ValueError("trending_date veya views sütunu eksik")
+
+        # Kanal başına günlük toplam izlenme
+        daily = self.df.groupby(["channel_title", "trending_date"])["views"].sum().reset_index()
+
+        # Her kanal için en az min_appearances gün verisi olanları filtrele
+        channel_counts = daily.groupby("channel_title").size()
+        valid_channels = channel_counts[channel_counts >= min_appearances].index
+        daily_filtered = daily[daily["channel_title"].isin(valid_channels)]
+
+        growth = []
+        for channel, group in daily_filtered.groupby("channel_title"):
+            group = group.sort_values("trending_date")
+            x = np.arange(len(group))  # gün indeksi
+            y = group["views"].values
+            if len(x) > 1:
+                slope = np.polyfit(x, np.log1p(y), 1)[0]  # log dönüşümlü eğim
+            else:
+                slope = 0
+            growth.append({"channel": channel, "growth_slope": slope, "data_points": len(group)})
+
+        growth_df = pd.DataFrame(growth).sort_values("growth_slope", ascending=False).head(top_n)
+        return growth_df
+
+    def category_time_trend(self):
+        """Zaman içinde kategorilerin ortalama izlenme değişimi."""
+        trend = self.df.groupby(["trending_date", "category_name"])["views"].mean().reset_index()
+        return trend
+
+if __name__ == "__main__":
+    analyzer = Analyzer()
+    print("Kategori istatistikleri:\n", analyzer.category_stats().head())
+    print("\nEn hızlı büyüyen kanallar:\n", analyzer.fastest_growing_channels())
